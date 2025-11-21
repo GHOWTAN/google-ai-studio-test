@@ -1,0 +1,191 @@
+// --- 1. ENGINE SETUP ---
+if (window.gameLoop) clearInterval(window.gameLoop);
+
+var canvas = document.querySelector('canvas') || document.body.appendChild(document.createElement('canvas'));
+var ctx = canvas.getContext('2d');
+canvas.width = 128; canvas.height = 128;
+canvas.style.width = '512px'; canvas.style.height = '512px';
+canvas.style.imageRendering = 'pixelated';
+
+var keys = {};
+window.addEventListener('keydown', function(e) { keys[e.key] = true; });
+window.addEventListener('keyup', function(e) { keys[e.key] = false; });
+
+var PAL = ['#000','#1D2B53','#7E2553','#008751','#AB5236','#5F574F','#C2C3C7','#FFF1E8','#FF004D','#FFA300','#FFEC27','#00E436','#29ADFF','#83769C','#FF77A8','#FFCCAA'];
+
+function btn(i) {
+  if(i===0) return keys['ArrowLeft'];
+  if(i===1) return keys['ArrowRight'];
+  if(i===2) return keys['ArrowUp'];
+  if(i===3) return keys['ArrowDown'];
+  if(i===4) return keys['z'] || keys['Z'];
+}
+function rnd(n) { return Math.random() * n; }
+function cls(c) { ctx.fillStyle = PAL[c]; ctx.fillRect(0,0,128,128); }
+function rect(x,y,w,h,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(x,y,w,h); }
+function pset(x,y,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(Math.floor(x),Math.floor(y),1,1); }
+function print(t,x,y,c) { ctx.fillStyle = PAL[c]; ctx.font='10px monospace'; ctx.fillText(t.toUpperCase(),x,y+8); }
+
+// --- 2. GAME LOGIC: RPS RIOT ---
+
+var units = [];
+var cursor = {x:64, y:64};
+var shake = 0;
+var winner_timer = 0;
+var total_units = 60;
+
+// 0: Rock (Grey), 1: Paper (White), 2: Scissors (Red)
+// 0 eats 2, 1 eats 0, 2 eats 1
+var type_colors = [5, 7, 8]; 
+var type_names = ["ROCK", "PAPER", "SCISSORS"];
+
+function _init() {
+  units = [];
+  for(var i=0; i<total_units; i++) {
+    units.push({
+      x: rnd(120)+4,
+      y: rnd(110)+10,
+      t: Math.floor(rnd(3)), // Type
+      vx: rnd(2)-1,
+      vy: rnd(2)-1
+    });
+  }
+  winner_timer = 0;
+}
+
+function _update() {
+  // 1. Cursor Movement
+  if(btn(0)) cursor.x -= 2;
+  if(btn(1)) cursor.x += 2;
+  if(btn(2)) cursor.y -= 2;
+  if(btn(3)) cursor.y += 2;
+  
+  // 2. God Mode: Spawn unit
+  if(btn(4)) {
+    units.push({
+      x: cursor.x, y: cursor.y,
+      t: Math.floor(rnd(3)),
+      vx: rnd(2)-1, vy: rnd(2)-1
+    });
+  }
+
+  // 3. Unit AI
+  var counts = [0, 0, 0];
+
+  for(var i=0; i<units.length; i++) {
+    var u = units[i];
+    counts[u.t]++; // Count population
+
+    // Find nearest Prey
+    var target = null;
+    var min_dist = 9999;
+    var prey_type = (u.t === 0) ? 2 : (u.t === 1) ? 0 : 1; // Who do I eat?
+
+    for(var j=0; j<units.length; j++) {
+      var other = units[j];
+      if (other.t === prey_type) {
+        var d = Math.sqrt((u.x-other.x)**2 + (u.y-other.y)**2);
+        if (d < min_dist) { min_dist = d; target = other; }
+      }
+    }
+
+    // Move logic
+    if (target) {
+      // Chase prey
+      if (u.x < target.x) u.vx += 0.1;
+      if (u.x > target.x) u.vx -= 0.1;
+      if (u.y < target.y) u.vy += 0.1;
+      if (u.y > target.y) u.vy -= 0.1;
+    } else {
+      // No prey? Wander aimlessly
+      u.vx += rnd(0.2)-0.1;
+      u.vy += rnd(0.2)-0.1;
+    }
+
+    // Friction & Physics
+    u.vx *= 0.9; u.vy *= 0.9;
+    u.x += u.vx; u.y += u.vy;
+
+    // Boundary Bounce
+    if(u.x<2 || u.x>124) u.vx *= -1;
+    if(u.y<12 || u.y>124) u.vy *= -1;
+    // Clamp
+    if(u.x<0) u.x=0; if(u.x>128) u.x=128;
+    if(u.y<10) u.y=10; if(u.y>128) u.y=128;
+
+    // Collision / Combat
+    for(var k=0; k<units.length; k++) {
+      if (i===k) continue;
+      var enemy = units[k];
+      // Check collision
+      if (Math.abs(u.x - enemy.x) < 3 && Math.abs(u.y - enemy.y) < 3) {
+        // If I eat enemy
+        if (enemy.t === prey_type) {
+          enemy.t = u.t; // CONVERT THEM!
+          shake = 2;
+        }
+      }
+    }
+  }
+
+  // 4. Win Check
+  if (counts[0] === units.length || counts[1] === units.length || counts[2] === units.length) {
+    winner_timer++;
+    if (winner_timer > 60) {
+      total_units += 10; // Next round is more chaotic
+      _init();
+    }
+  }
+}
+
+function _draw() {
+  // Shake
+  var sx = 0, sy = 0;
+  if(shake>0) { sx=rnd(2)-1; sy=rnd(2)-1; shake--; }
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.translate(sx,sy);
+
+  cls(1); // Dark Blue BG
+
+  // Draw Arena
+  rect(2, 12, 124, 114, 0);
+
+  // Draw Units
+  for(var u of units) {
+    rect(u.x-1, u.y-1, 3, 3, type_colors[u.t]);
+    // Eyes
+    pset(u.x, u.y, 0);
+  }
+
+  // Draw Cursor
+  var cx = cursor.x, cy = cursor.y;
+  rect(cx-4, cy, 9, 1, 7);
+  rect(cx, cy-4, 1, 9, 7);
+
+  // UI
+  rect(0,0,128,10,1);
+  // Simple counts
+  var c0=0, c1=0, c2=0;
+  for(var u of units) {
+    if(u.t===0) c0++;
+    if(u.t===1) c1++;
+    if(u.t===2) c2++;
+  }
+  
+  // Mini bar charts
+  rect(2, 2, c0, 2, 5);
+  rect(42, 2, c1, 2, 7);
+  rect(82, 2, c2, 2, 8);
+  
+  print("R:" + c0, 2, 1, 6);
+  print("P:" + c1, 42, 1, 6);
+  print("S:" + c2, 82, 1, 6);
+
+  if (winner_timer > 0) {
+     print("DOMINATION!", 35, 60, 10);
+  }
+}
+
+// --- 3. LOOP ---
+_init();
+window.gameLoop = setInterval(function() { _update(); _draw(); }, 33);

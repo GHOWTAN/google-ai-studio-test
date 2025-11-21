@@ -1,0 +1,174 @@
+// --- 1. ENGINE SETUP ---
+if (window.gameLoop) clearInterval(window.gameLoop);
+
+var canvas = document.querySelector('canvas') || document.body.appendChild(document.createElement('canvas'));
+var ctx = canvas.getContext('2d');
+canvas.width = 128; canvas.height = 128;
+canvas.style.width = '512px'; canvas.style.height = '512px';
+canvas.style.imageRendering = 'pixelated';
+
+var keys = {};
+window.addEventListener('keydown', function(e) { keys[e.key] = true; });
+window.addEventListener('keyup', function(e) { keys[e.key] = false; });
+
+var PAL = ['#000','#1D2B53','#7E2553','#008751','#AB5236','#5F574F','#C2C3C7','#FFF1E8','#FF004D','#FFA300','#FFEC27','#00E436','#29ADFF','#83769C','#FF77A8','#FFCCAA'];
+
+function btn(i) {
+  if(i===0) return keys['ArrowLeft'];
+  if(i===1) return keys['ArrowRight'];
+  if(i===2) return keys['ArrowUp'];
+  if(i===4) return keys['z'] || keys['Z'];
+}
+function rnd(n) { return Math.random() * n; }
+function cls(c) { ctx.fillStyle = PAL[c]; ctx.fillRect(0,0,128,128); }
+function rect(x,y,w,h,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(x,y,w,h); }
+function pset(x,y,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(Math.floor(x),Math.floor(y),1,1); }
+function print(t,x,y,c) { ctx.fillStyle = PAL[c]; ctx.font='10px monospace'; ctx.fillText(t.toUpperCase(),x,y+8); }
+
+// --- 2. GAME LOGIC: CUCUMBER PANIC ---
+
+var cat = { x: 60, y: 110, w: 8, h: 8, spd: 3, zoom_timer: 0 };
+var items = []; // Cucumbers and treats
+var score = 0;
+var game_over = false;
+var shake = 0;
+var spawn_rate = 0.95;
+
+function _init() {
+  cat = { x: 60, y: 110, w: 8, h: 8, spd: 3, zoom_timer: 0 };
+  items = [];
+  score = 0;
+  game_over = false;
+  spawn_rate = 0.95;
+}
+
+function spawn_item() {
+  var is_treat = rnd(100) > 90; // 10% chance of treat
+  items.push({
+    x: rnd(120),
+    y: -10,
+    w: is_treat ? 4 : 4,
+    h: is_treat ? 4 : 12, // Cucumbers are long
+    type: is_treat ? 'treat' : 'cucumber',
+    spd: 1 + rnd(2) + (score/500) // Get faster over time
+  });
+}
+
+function _update() {
+  if (game_over) {
+    if (btn(2) || btn(4)) _init(); // Up or Z to restart
+    return;
+  }
+
+  // 1. Cat Controls
+  var current_spd = (cat.zoom_timer > 0) ? cat.spd * 2 : cat.spd; // Faster in zoomie mode
+  if (btn(0)) cat.x -= current_spd;
+  if (btn(1)) cat.x += current_spd;
+  
+  // Keep cat on screen
+  if(cat.x < 0) cat.x = 0;
+  if(cat.x > 120) cat.x = 120;
+
+  // Zoomie Timer countdown
+  if (cat.zoom_timer > 0) {
+    cat.zoom_timer--;
+    shake = 2; // Constant shake during zoomies
+    score += 2; // Bonus points during zoomies
+  }
+
+  // 2. Item Spawning
+  if (rnd(100) > spawn_rate * 100) {
+    spawn_item();
+  }
+
+  // 3. Update Items & Collisions
+  for (var i = items.length - 1; i >= 0; i--) {
+    var it = items[i];
+    it.y += it.spd;
+
+    // Collision AABB
+    if (cat.x < it.x + it.w &&
+        cat.x + cat.w > it.x &&
+        cat.y < it.y + it.h &&
+        cat.y + cat.h > it.y) {
+      
+      if (it.type === 'treat') {
+        // Got a treat! ZOOMIE MODE!
+        cat.zoom_timer = 90; // 3 seconds (at 30fps)
+        items.splice(i, 1);
+        score += 50;
+      } else if (cat.zoom_timer <= 0) {
+        // Hit a cucumber while normal -> DIE of fright
+        game_over = true;
+        shake = 10;
+      } else {
+        // Hit cucumber while in zoomie mode -> Destroy cucumber
+         items.splice(i, 1);
+         score += 10;
+      }
+    }
+
+    // Remove off-screen items
+    if (it.y > 128) {
+       items.splice(i, 1);
+       score++;
+    }
+  }
+  
+  // Difficulty scaling
+  spawn_rate *= 0.9995; 
+}
+
+function _draw() {
+  // Screen Shake effect
+  var sx = 0, sy = 0;
+  if(shake>0) { sx=rnd(shake)-shake/2; sy=rnd(shake)-shake/2; shake-=0.5; }
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.translate(sx,sy);
+
+  // Background changes color during Zoomies
+  cls(cat.zoom_timer > 0 ? 2 : 1); 
+
+  // Draw Floor
+  rect(0, 118, 128, 10, 5);
+
+  // Draw Items
+  for (var it of items) {
+    if (it.type === 'cucumber') {
+      rect(it.x, it.y, it.w, it.h, 3); // Green Cucumber
+      pset(it.x+1, it.y+2, 11); // texture dots
+      pset(it.x+2, it.y+8, 11);
+    } else {
+      rect(it.x, it.y, it.w, it.h, 10); // Yellow Treat
+      if(rnd(10)>5) pset(it.x, it.y, 7); // Sparkle
+    }
+  }
+
+  // Draw Cat
+  var cat_color = (cat.zoom_timer > 0 && rnd(10)>5) ? 7 : 9; // Flicker white during zoomies, else Orange
+  rect(cat.x, cat.y, cat.w, cat.h, cat_color); // Body
+  pset(cat.x, cat.y-1, cat_color); // Left ear tip
+  pset(cat.x+7, cat.y-1, cat_color); // Right ear tip
+  pset(cat.x+2, cat.y+2, 0); // Eye
+  pset(cat.x+5, cat.y+2, 0); // Eye
+  if (cat.zoom_timer > 0) {
+     rect(cat.x-2, cat.y+3, 12, 2, 7); // Zoomie motion blur streaks
+  }
+
+  // HUD
+  rect(0, 0, 128, 8, 0);
+  print("SCORE: " + score, 2, 0, 7);
+  if (cat.zoom_timer > 0) {
+     print("ZOOMIES!", 80, 0, 10);
+  }
+
+  if (game_over) {
+    rect(25, 50, 78, 25, 0);
+    print("SPOOKED!", 40, 54, 8);
+    print("Z TO RETRY", 38, 64, 6);
+  }
+}
+
+// --- 3. LOOP ---
+_init();
+window.gameLoop = setInterval(function() { _update(); _draw(); }, 33);

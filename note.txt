@@ -1,0 +1,2 @@
+magic lovely tree:
+find . -name node_modules -prune -o -print | sed -e 's;[^/]*/;|____;g;s;____|; |;g'

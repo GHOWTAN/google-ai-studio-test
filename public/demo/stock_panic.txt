@@ -1,0 +1,150 @@
+// --- 1. ENGINE SETUP ---
+if (window.gameLoop) clearInterval(window.gameLoop);
+
+var canvas = document.querySelector('canvas') || document.body.appendChild(document.createElement('canvas'));
+var ctx = canvas.getContext('2d');
+canvas.width = 128; canvas.height = 128;
+canvas.style.width = '512px'; canvas.style.height = '512px';
+canvas.style.imageRendering = 'pixelated';
+
+var keys = {};
+window.addEventListener('keydown', function(e) { keys[e.key] = true; });
+window.addEventListener('keyup', function(e) { keys[e.key] = false; });
+
+var PAL = ['#000','#1D2B53','#7E2553','#008751','#AB5236','#5F574F','#C2C3C7','#FFF1E8','#FF004D','#FFA300','#FFEC27','#00E436','#29ADFF','#83769C','#FF77A8','#FFCCAA'];
+
+function btn(i) {
+  if(i===4) return keys['z'] || keys['Z']; // Buy
+  if(i===5) return keys['x'] || keys['X']; // Sell
+}
+function rnd(n) { return Math.random() * n; }
+function cls(c) { ctx.fillStyle = PAL[c]; ctx.fillRect(0,0,128,128); }
+function rect(x,y,w,h,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(x,y,w,h); }
+function pset(x,y,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(Math.floor(x),Math.floor(y),1,1); }
+function print(t,x,y,c) { ctx.fillStyle = PAL[c]; ctx.font='10px monospace'; ctx.fillText(t.toUpperCase(),x,y+8); }
+
+// --- 2. GAME LOGIC: STONK PANIC ---
+
+var cash = 100;
+var shares = 0;
+var price = 50;
+var history = [];
+var trend = 0;
+var volatility = 1;
+var news_timer = 0;
+var current_news = "MARKET OPEN";
+var game_over = false;
+var shake = 0;
+
+var headlines = [
+  "DOGS BANNED", "CEO IS A CAT", "MATH IS WRONG", 
+  "STONKS ONLY GO UP", "MOON SOLD", "MONEY IS FAKE",
+  "BUY THE DIP", "ROBOTS REVOLT", "PIZZA CRASH"
+];
+
+function _init() {
+  cash = 100;
+  shares = 0;
+  price = 50;
+  history = [];
+  // Fill initial history
+  for(var i=0; i<128; i++) history.push(50);
+  game_over = false;
+}
+
+function _update() {
+  if (cash <= 0 && shares === 0) game_over = true;
+  if (game_over && btn(4)) _init(); 
+
+  if (game_over) return;
+
+  // 1. Market Simulation
+  if (rnd(100) < 5) trend = rnd(4) - 2; // Random trend shift
+  
+  // News Effect
+  news_timer++;
+  if (news_timer > 100) {
+    news_timer = 0;
+    current_news = headlines[Math.floor(rnd(headlines.length))];
+    // News drastically changes trend
+    trend = rnd(6) - 3;
+    volatility = rnd(3);
+    shake = 5;
+  }
+
+  // Fluctuate Price
+  var change = trend + (rnd(volatility*2) - volatility);
+  price += change;
+  
+  // Clamp Price
+  if (price < 2) price = 2;
+  if (price > 100) price = 100;
+
+  // Update History Graph
+  history.push(price);
+  if (history.length > 128) history.shift();
+
+  // 2. Player Input
+  // BUY (Z)
+  if (btn(4) && cash >= price) {
+    cash -= price;
+    shares++;
+  }
+  // SELL (X)
+  if (btn(5) && shares > 0) {
+    cash += price;
+    shares--;
+  }
+}
+
+function _draw() {
+  // Screen Shake
+  var sx = 0, sy = 0;
+  if(shake>0) { sx=rnd(shake)-shake/2; sy=rnd(shake)-shake/2; shake-=0.5; }
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.translate(sx,sy);
+
+  cls(1); // Dark Blue BG
+
+  // Draw Graph
+  for (var i = 0; i < history.length; i++) {
+    var h = history[i];
+    var prev = history[i-1] || h;
+    var color = (h >= prev) ? 11 : 8; // Green if up, Red if down
+    
+    // Draw simple line using rects
+    var y = 120 - h;
+    rect(i, y, 2, 128-y, color); // Bar chart style
+    pset(i, y, 7); // White tip
+  }
+
+  // Draw Limit Line
+  rect(0, 120-price, 128, 1, 7);
+
+  // UI Panel
+  rect(0, 0, 128, 25, 0);
+  
+  // Stats
+  print("$" + Math.floor(cash), 2, 2, 11); // Green Money
+  print("STK:" + shares, 50, 2, 12); // Blue Shares
+  print("VAL:" + Math.floor(price), 90, 2, (price>50)?11:8); // Price
+
+  // News Ticker
+  rect(0, 12, 128, 9, 2); // Purple bar
+  print(current_news, 2 + rnd(1), 12, 7); // Jittery text
+
+  // Buy/Sell Indicators
+  if (btn(4)) rect(120, 0, 8, 8, 11); // Green light on Buy
+  if (btn(5)) rect(120, 0, 8, 8, 8);  // Red light on Sell
+
+  // Game Over Overlay
+  if (game_over) {
+    rect(20, 50, 88, 30, 0);
+    print("BANKRUPT", 40, 55, 8);
+    print("Z TO RESTART", 35, 65, 6);
+  }
+}
+
+// --- 3. LOOP ---
+_init();
+window.gameLoop = setInterval(function() { _update(); _draw(); }, 33);

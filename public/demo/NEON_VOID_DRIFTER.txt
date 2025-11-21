@@ -1,0 +1,210 @@
+// --- 1. ENGINE SETUP (Artist Mode) ---
+if (window.gameLoop) clearInterval(window.gameLoop);
+
+var canvas = document.querySelector('canvas') || document.body.appendChild(document.createElement('canvas'));
+var ctx = canvas.getContext('2d');
+canvas.width = 128; canvas.height = 128;
+// Set display size larger for emphasis
+canvas.style.width = '512px'; canvas.style.height = '512px';
+canvas.style.imageRendering = 'pixelated';
+canvas.style.backgroundColor = '#000';
+
+var keys = {};
+window.addEventListener('keydown', function(e) { keys[e.key] = true; });
+window.addEventListener('keyup', function(e) { keys[e.key] = false; });
+
+// Neon Palette
+var PAL = ['#000000','#1D2B53','#7E2553','#008751','#AB5236','#5F574F','#C2C3C7','#FFF1E8','#FF004D','#FFA300','#FFEC27','#00E436','#29ADFF','#83769C','#FF77A8','#FFCCAA'];
+
+function btn(i) {
+  if(i===0) return keys['ArrowLeft'];
+  if(i===1) return keys['ArrowRight'];
+  if(i===2) return keys['ArrowUp'];
+}
+function rnd(n) { return Math.random() * n; }
+
+// The "Art" Clear - leaves trails
+function fade_cls() { 
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; // 25% opacity black overlay
+    ctx.fillRect(0,0,128,128); 
+}
+
+// Glowing Circle
+function glow_circ(x,y,r,c) { 
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = PAL[c];
+  ctx.fillStyle = PAL[c]; 
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); 
+  ctx.shadowBlur = 0; // Reset shadow
+}
+
+// Glowing Line
+function glow_line(x1,y1,x2,y2,c) {
+  ctx.strokeStyle = PAL[c];
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = PAL[c];
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function print(t,x,y,c) { ctx.fillStyle = PAL[c]; ctx.font='10px monospace'; ctx.fillText(t.toUpperCase(),x,y+8); }
+
+// --- 2. GAME LOGIC: NEON VOID DRIFTER ---
+
+var p = { x:64, y:64, vx:0, vy:0, ang: -Math.PI/2, drag: 0.96 };
+var shards = [];
+var particles = [];
+var score = 0;
+var game_over = false;
+var tick = 0;
+
+function _init() {
+  p = { x:64, y:64, vx:0, vy:0, ang: -Math.PI/2, drag: 0.96 };
+  shards = [];
+  particles = [];
+  score = 0;
+  game_over = false;
+  tick = 0;
+}
+
+function spawn_shard() {
+  // Spawn on outskirts
+  var side = Math.floor(rnd(4));
+  var sx, sy;
+  if(side===0) { sx = rnd(128); sy = -10; }
+  if(side===1) { sx = rnd(128); sy = 138; }
+  if(side===2) { sx = -10; sy = rnd(128); }
+  if(side===3) { sx = 138; sy = rnd(128); }
+
+  // Calculate angle towards center (slightly off-center for drift)
+  var target_x = 64 + rnd(40)-20;
+  var target_y = 64 + rnd(40)-20;
+  var angle = Math.atan2(target_y - sy, target_x - sx);
+  var spd = 0.5 + (score/500); // Get faster
+
+  shards.push({
+    x: sx, y: sy,
+    vx: Math.cos(angle)*spd, vy: Math.sin(angle)*spd,
+    r: 3 + rnd(4), // Radius
+    c: [8, 12, 10, 14][Math.floor(rnd(4))], // Random neon color
+    rot: rnd(Math.PI), // rotation for drawing
+    rot_spd: rnd(0.1)-0.05
+  });
+}
+
+function explode(x,y,c) {
+    for(var i=0; i<10; i++) {
+        particles.push({
+            x:x, y:y,
+            vx: rnd(4)-2, vy: rnd(4)-2,
+            life: 20 + rnd(10), c: c
+        });
+    }
+}
+
+function _update() {
+  if (game_over) {
+    if (btn(2)) _init();
+    return;
+  }
+  tick++;
+  score++;
+
+  // 1. Player Physics
+  if (btn(0)) p.ang -= 0.1;
+  if (btn(1)) p.ang += 0.1;
+  if (btn(2)) {
+      // Thrust
+      p.vx += Math.cos(p.ang) * 0.15;
+      p.vy += Math.sin(p.ang) * 0.15;
+      // Thrust particle
+      if(tick%3===0) particles.push({x:p.x, y:p.y, vx:0, vy:0, life:15, c:7});
+  }
+  
+  p.vx *= p.drag;
+  p.vy *= p.drag;
+  p.x += p.vx;
+  p.y += p.vy;
+
+  // Wrap around screen
+  if(p.x < 0) p.x = 128; if(p.x > 128) p.x = 0;
+  if(p.y < 0) p.y = 128; if(p.y > 128) p.y = 0;
+
+  // 2. Shards
+  if (tick % (40 - Math.min(30, Math.floor(score/100))) === 0) spawn_shard();
+
+  for (var i = shards.length - 1; i >= 0; i--) {
+    var s = shards[i];
+    s.x += s.vx; s.y += s.vy; s.rot += s.rot_spd;
+
+    // Collision
+    var dist = Math.sqrt((p.x-s.x)**2 + (p.y-s.y)**2);
+    if (dist < s.r + 3) {
+        explode(p.x, p.y, 14); // Pink explosion
+        game_over = true;
+    }
+    // cleanup
+    if(s.x < -20 || s.x > 148 || s.y < -20 || s.y > 148) shards.splice(i,1);
+  }
+
+  // 3. Particles
+  for(var i=particles.length-1; i>=0; i--) {
+      var pt = particles[i];
+      pt.x+=pt.vx; pt.y+=pt.vy; pt.life--;
+      if(pt.life<=0) particles.splice(i,1);
+  }
+}
+
+function _draw() {
+  fade_cls(); // The trails effect
+
+  // Draw Background pulse
+  var pulse = Math.sin(tick/20)*2;
+  glow_circ(64,64, 20+pulse, 1); // Faint blue center
+
+  // Draw Player
+  if(!game_over) {
+    // Main body
+    glow_circ(p.x, p.y, 3, 12); // Cyan
+    // Direction indicator
+    var tip_x = p.x + Math.cos(p.ang)*6;
+    var tip_y = p.y + Math.sin(p.ang)*6;
+    glow_line(p.x, p.y, tip_x, tip_y, 7); // White line
+  }
+
+  // Draw Shards (as rotating squares for contrast)
+  for (var s of shards) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.shadowBlur = 10; ctx.shadowColor = PAL[s.c];
+    ctx.strokeStyle = PAL[s.c];
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.rect(-s.r, -s.r, s.r*2, s.r*2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Draw Particles
+  for(var pt of particles) {
+      // Fade color based on life
+      var c = (pt.life > 10) ? pt.c : 1;
+      ctx.fillStyle = PAL[c];
+      ctx.fillRect(pt.x, pt.y, 1, 1);
+  }
+
+  // HUD text glowing
+  ctx.shadowBlur = 5; ctx.shadowColor = PAL[12];
+  print("DRIFT: " + score, 2, 2, 12);
+  ctx.shadowBlur = 0;
+
+  if (game_over) {
+    print("SIGNAL LOST", 35, 55, 8);
+    print("UP TO REALIGN", 30, 65, 7);
+  }
+}
+
+// --- 3. LOOP ---
+_init();
+// Running slightly faster for smoother motion
+window.gameLoop = setInterval(function() { _update(); _draw(); }, 25);

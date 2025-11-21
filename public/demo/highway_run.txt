@@ -1,0 +1,155 @@
+// --- 1. ENGINE SETUP ---
+if (window.gameLoop) clearInterval(window.gameLoop);
+
+var canvas = document.querySelector('canvas') || document.body.appendChild(document.createElement('canvas'));
+var ctx = canvas.getContext('2d');
+canvas.width = 128; canvas.height = 128;
+canvas.style.width = '512px'; canvas.style.height = '512px';
+canvas.style.imageRendering = 'pixelated';
+
+var keys = {};
+window.addEventListener('keydown', function(e) { keys[e.key] = true; });
+window.addEventListener('keyup', function(e) { keys[e.key] = false; });
+
+var PAL = ['#000','#1D2B53','#7E2553','#008751','#AB5236','#5F574F','#C2C3C7','#FFF1E8','#FF004D','#FFA300','#FFEC27','#00E436','#29ADFF','#83769C','#FF77A8','#FFCCAA'];
+
+function btn(i) {
+  if(i===0) return keys['ArrowLeft'];
+  if(i===1) return keys['ArrowRight'];
+  if(i===2) return keys['ArrowUp'];
+  if(i===3) return keys['ArrowDown'];
+}
+function rnd(n) { return Math.random() * n; }
+function cls(c) { ctx.fillStyle = PAL[c]; ctx.fillRect(0,0,128,128); }
+function rect(x,y,w,h,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(x,y,w,h); }
+function print(t,x,y,c) { ctx.fillStyle = PAL[c]; ctx.font='10px monospace'; ctx.fillText(t.toUpperCase(),x,y+8); }
+
+// --- 2. GAME LOGIC: HIGHWAY RUN ---
+
+var player = { x: 54, y: 100, w: 10, h: 14 };
+var enemies = [];
+var road_y = 0;
+var speed = 2;
+var score = 0;
+var game_over = false;
+
+function _init() {
+  player = { x: 54, y: 100, w: 10, h: 14 };
+  enemies = [];
+  speed = 2;
+  score = 0;
+  game_over = false;
+}
+
+function spawn_enemy() {
+  var lane_width = 30;
+  // Spawn in one of 3 random lane positions
+  var pos_x = 25 + rnd(70);
+  enemies.push({ 
+    x: pos_x, 
+    y: -20, 
+    w: 10, 
+    h: 14, 
+    spd: 1 + rnd(1.5) // Random speed variation
+  });
+}
+
+function _update() {
+  if (game_over) {
+    if (btn(2)) _init(); // Press Up to restart
+    return;
+  }
+
+  // 1. Controls
+  if (btn(0)) player.x -= 3; // Left
+  if (btn(1)) player.x += 3; // Right
+  
+  // Boost
+  var current_speed = speed;
+  if (btn(2)) {
+    current_speed = speed * 2;
+    score++; // Bonus points for boosting
+  }
+
+  // Keep on road (Road is roughly 20 to 108)
+  if (player.x < 20) player.x = 20;
+  if (player.x > 98) player.x = 98;
+
+  // 2. Road Animation
+  road_y += current_speed;
+  if (road_y > 20) road_y = 0;
+
+  // 3. Enemy Logic
+  if (rnd(100) < 3 + (score/500)) { // Spawn rate increases with score
+    spawn_enemy();
+  }
+
+  for (var i = enemies.length - 1; i >= 0; i--) {
+    var e = enemies[i];
+    e.y += current_speed - 0.5; // Enemies move slower than the road (relative speed)
+
+    // Collision AABB
+    if (player.x < e.x + e.w &&
+        player.x + player.w > e.x &&
+        player.y < e.y + e.h &&
+        player.y + player.h > e.y) {
+      game_over = true;
+    }
+
+    // Remove if passed
+    if (e.y > 130) {
+      enemies.splice(i, 1);
+      score += 10;
+      // Difficulty Scaling
+      if (score % 100 === 0) speed += 0.2;
+    }
+  }
+  
+  score++;
+}
+
+function _draw() {
+  cls(3); // Green Grass Background
+
+  // Draw Road (Grey)
+  rect(20, 0, 88, 128, 5);
+  
+  // Draw Road Stripes (White)
+  rect(22, 0, 2, 128, 6); // Left shoulder
+  rect(104, 0, 2, 128, 6); // Right shoulder
+  
+  // Moving Center Lines
+  for (var i = -1; i < 7; i++) {
+    rect(63, (i * 20) + road_y, 2, 10, 7);
+  }
+
+  // Draw Enemies (Red Cars)
+  for (var e of enemies) {
+    rect(e.x, e.y, e.w, e.h, 8); // Body
+    rect(e.x + 2, e.y + 2, 6, 3, 0); // Window
+    rect(e.x, e.y + 10, 2, 2, 9); // Lights
+    rect(e.x + 8, e.y + 10, 2, 2, 9);
+  }
+
+  // Draw Player (Blue Car)
+  if (!game_over || Math.floor(Date.now() / 100) % 2) { // Flicker if dead
+    rect(player.x, player.y, player.w, player.h, 12); // Body
+    rect(player.x + 2, player.y + 4, 6, 3, 7); // Window
+    rect(player.x, player.y, 2, 2, 8); // Red Taillights
+    rect(player.x + 8, player.y, 2, 2, 8);
+  }
+
+  // HUD
+  rect(0, 0, 128, 8, 0);
+  print("DIST: " + Math.floor(score/10), 2, 0, 7);
+
+  if (game_over) {
+    rect(30, 50, 68, 25, 0);
+    print("CRASH!", 50, 54, 8);
+    print("UP TO RETRY", 38, 64, 6);
+  }
+}
+
+// --- 3. LOOP ---
+_init();
+window.gameLoop = setInterval(function() { _update(); _draw(); }, 33);

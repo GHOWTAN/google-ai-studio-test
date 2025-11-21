@@ -1,0 +1,177 @@
+// --- 1. ENGINE SETUP (Standardized) ---
+if (window.gameLoop) clearInterval(window.gameLoop);
+
+var canvas = document.querySelector('canvas') || document.body.appendChild(document.createElement('canvas'));
+var ctx = canvas.getContext('2d');
+canvas.width = 128; canvas.height = 128;
+canvas.style.width = '512px'; canvas.style.height = '512px';
+canvas.style.imageRendering = 'pixelated';
+
+// Input
+var keys = {};
+window.addEventListener('keydown', function(e) { keys[e.key] = true; });
+window.addEventListener('keyup', function(e) { keys[e.key] = false; });
+
+// Helpers
+var PAL = ['#000','#1D2B53','#7E2553','#008751','#AB5236','#5F574F','#C2C3C7','#FFF1E8','#FF004D','#FFA300','#FFEC27','#00E436','#29ADFF','#83769C','#FF77A8','#FFCCAA'];
+function btn(i) {
+  if(i===0) return keys['ArrowLeft'];
+  if(i===1) return keys['ArrowRight'];
+  if(i===2) return keys['ArrowUp'];
+  if(i===3) return keys['ArrowDown'];
+  if(i===4) return keys['z'] || keys['Z'];
+}
+function rnd(n) { return Math.random() * n; }
+function cls(c) { ctx.fillStyle = PAL[c]; ctx.fillRect(0,0,128,128); }
+function pset(x,y,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(Math.floor(x),Math.floor(y),1,1); }
+function rect(x,y,w,h,c) { ctx.fillStyle = PAL[c]; ctx.fillRect(x,y,w,h); }
+function print(t,x,y,c) { ctx.fillStyle = PAL[c]; ctx.font='10px monospace'; ctx.fillText(t.toUpperCase(),x,y+8); }
+
+// --- 2. GAME LOGIC: PIXEL ARENA ---
+
+var p = { x:64, y:64, dir_x:1, dir_y:0, cd:0 }; // Player
+var bullets = [];
+var zombies = [];
+var particles = [];
+var score = 0;
+var wave_timer = 0;
+var shake = 0;
+
+function _init() {
+  p = { x:64, y:64, dir_x:1, dir_y:0, cd:0 };
+  bullets = [];
+  zombies = [];
+  particles = [];
+  score = 0;
+  wave_timer = 0;
+}
+
+function spawn_zombie() {
+  // Spawn at random edge
+  var zx, zy;
+  if (rnd(10) > 5) {
+    zx = (rnd(10)>5) ? -5 : 133;
+    zy = rnd(128);
+  } else {
+    zx = rnd(128);
+    zy = (rnd(10)>5) ? -5 : 133;
+  }
+  zombies.push({ x: zx, y: zy, hp: 3 });
+}
+
+function _update() {
+  // 1. Player Move
+  var moved = false;
+  if (btn(0)) { p.x -= 1.5; p.dir_x = -1; p.dir_y = 0; moved=true; }
+  if (btn(1)) { p.x += 1.5; p.dir_x = 1;  p.dir_y = 0; moved=true; }
+  if (btn(2)) { p.y -= 1.5; p.dir_y = -1; p.dir_x = 0; moved=true; }
+  if (btn(3)) { p.y += 1.5; p.dir_y = 1;  p.dir_x = 0; moved=true; }
+
+  // Clamp Player
+  if(p.x<0) p.x=0; if(p.x>120) p.x=120;
+  if(p.y<0) p.y=0; if(p.y>120) p.y=120;
+
+  // 2. Shooting (Cooldown)
+  if (p.cd > 0) p.cd--;
+  if (btn(4) && p.cd <= 0) { // Press Z
+    bullets.push({ x: p.x+4, y: p.y+4, dx: p.dir_x*4, dy: p.dir_y*4 });
+    p.cd = 10; // Fire rate
+    shake = 2;
+  }
+
+  // 3. Zombies Spawning
+  wave_timer++;
+  if (wave_timer > 40 - (score/10)) { // Get harder over time
+    spawn_zombie();
+    wave_timer = 0;
+  }
+
+  // 4. Update Zombies
+  for (var i=zombies.length-1; i>=0; i--) {
+    var z = zombies[i];
+    // Move towards player
+    if (z.x < p.x) z.x += 0.4;
+    if (z.x > p.x) z.x -= 0.4;
+    if (z.y < p.y) z.y += 0.4;
+    if (z.y > p.y) z.y -= 0.4;
+
+    // Player Collision (Game Over)
+    if (Math.abs(z.x - p.x) < 6 && Math.abs(z.y - p.y) < 6) {
+      _init(); // Reset Game immediately
+      shake = 20;
+      return;
+    }
+  }
+
+  // 5. Update Bullets & Collisions
+  for (var i=bullets.length-1; i>=0; i--) {
+    var b = bullets[i];
+    b.x += b.dx;
+    b.y += b.dy;
+    
+    // Hit Check
+    var hit = false;
+    for (var j=zombies.length-1; j>=0; j--) {
+      var z = zombies[j];
+      if (Math.abs(b.x - z.x) < 6 && Math.abs(b.y - z.y) < 6) {
+        zombies.splice(j, 1); // Kill zombie
+        hit = true;
+        score += 10;
+        // Blood particles
+        for(var k=0; k<5; k++) particles.push({x:z.x, y:z.y, age:10, c:8});
+        break;
+      }
+    }
+
+    // Remove bullet if hit or out of bounds
+    if (hit || b.x<0 || b.x>128 || b.y<0 || b.y>128) {
+      bullets.splice(i, 1);
+    }
+  }
+
+  // 6. Particles
+  for (var i=particles.length-1; i>=0; i--) {
+    particles[i].age--;
+    if (particles[i].age <= 0) particles.splice(i, 1);
+  }
+}
+
+function _draw() {
+  // Screen Shake offset
+  var sx = 0, sy = 0;
+  if (shake > 0) {
+    shake -= 0.5;
+    sx = rnd(shake) - shake/2;
+    sy = rnd(shake) - shake/2;
+  }
+  
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.translate(sx, sy);
+
+  cls(0); // Black BG
+
+  // Draw Zombies (Green)
+  for (var z of zombies) {
+    rect(z.x, z.y, 8, 8, 3); // Green body
+    pset(z.x+2, z.y+2, 7);   // White eye
+  }
+
+  // Draw Player (Blue)
+  rect(p.x, p.y, 8, 8, 12);
+  // Gun pointer
+  pset(p.x+4 + p.dir_x*3, p.y+4 + p.dir_y*3, 7);
+
+  // Draw Bullets (Yellow)
+  for (var b of bullets) rect(b.x, b.y, 2, 2, 10);
+
+  // Draw Particles
+  for (var pt of particles) pset(pt.x + rnd(4), pt.y + rnd(4), pt.c);
+
+  // HUD
+  rect(0, 0, 128, 8, 1);
+  print("SCORE: " + score, 2, 0, 6);
+}
+
+// --- 3. LOOP ---
+_init();
+window.gameLoop = setInterval(function() { _update(); _draw(); }, 33);
